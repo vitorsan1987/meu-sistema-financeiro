@@ -3,22 +3,22 @@ import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
 # Configuração da Página
-st.set_page_config(page_title="Finanças Pro Sync", layout="wide")
+st.set_page_config(page_title="Gestão Financeira Cloud", layout="wide")
 
-# Função para formatar valores em Real (BRL)
+# Função para formatar em Real (BRL)
 def formatar_real(valor):
     return f"R$ {valor:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".")
 
-# Inicialização da Conexão Segura com Google Sheets
+# Inicialização da Conexão com tratamento de erro de Padding
 try:
-    # O Streamlit busca as credenciais automaticamente em [connections.gsheets] nos Secrets
+    # O Streamlit busca as credenciais em [connections.gsheets] nos Secrets
     conn = st.connection("gsheets", type=GSheetsConnection)
-    # Tenta ler os dados para validar a conexão
-    dados_atuais = conn.read(ttl=0)
+    # Tenta uma leitura simples para validar a conexão
+    df_teste = conn.read(ttl=0)
     conexao_ok = True
 except Exception as e:
     st.error("Erro de Autenticação: Verifique a 'private_key' nos Secrets.")
-    st.info("Dica: Certifique-se de usar aspas triplas ( \"\"\" ) para envolver a chave nos Secrets.")
+    st.info("Dica: Use aspas triplas ( \"\"\" ) para envolver a chave nos Secrets.")
     conexao_ok = False
 
 st.title("💳 Gestão Financeira Cloud - Final")
@@ -31,7 +31,6 @@ tipo_divisao = st.radio(
 )
 
 with st.form("form_financeiro_final", clear_on_submit=True):
-    # Campos de Entrada de Dados
     c1, c2, c3, c4 = st.columns([2, 1, 0.7, 0.7])
     with c1: 
         desc = st.text_input("Descrição da Compra")
@@ -48,26 +47,21 @@ with st.form("form_financeiro_final", clear_on_submit=True):
         v_default_p1 = "Eu" if tipo_divisao == "100% Minha" else ""
         nome_p1 = st.text_input("Pessoa 1", value=v_default_p1)
     with d2:
-        # Bloqueia o segundo nome se não for compra dividida
         bloqueado_p2 = (tipo_divisao != "Dividida (50/50)")
         nome_p2 = st.text_input("Pessoa 2", disabled=bloqueado_p2, placeholder="Obrigatório para divisão")
     with d3:
         cartao_nome = st.selectbox("Cartão", ["Nubank", "BB", "Itaú", "Inter", "Outro"])
 
-    # Botão de Envio
     enviar_dados = st.form_submit_button("✅ Salvar na Planilha Cloud", use_container_width=True)
 
     if enviar_dados and conexao_ok:
         if not desc or not nome_p1:
             st.error("Por favor, preencha a descrição e o nome da Pessoa 1.")
-        elif tipo_divisao == "Dividida (50/50)" and not nome_p2:
-            st.error("Para divisões, o nome da Pessoa 2 é obrigatório.")
         else:
-            # Lógica de partilha de valores (50/50 ou 100%)
+            # Lógica de partilha de valores
             val_p1 = valor_total if tipo_divisao != "Dividida (50/50)" else valor_total / 2
             val_p2 = valor_total / 2 if tipo_divisao == "Dividida (50/50)" else 0.0
             
-            # Estruturação da nova linha para a planilha
             nova_entrada = pd.DataFrame([{
                 "Descrição": desc,
                 "Valor Total": valor_total,
@@ -80,42 +74,34 @@ with st.form("form_financeiro_final", clear_on_submit=True):
             }])
 
             try:
-                # Processo de atualização: Lê -> Concatena -> Envia
                 df_nuvem = conn.read(ttl=0)
                 df_final = pd.concat([df_nuvem, nova_entrada], ignore_index=True)
                 conn.update(data=df_final)
-                st.success("Dados registrados com sucesso no Google Sheets!")
+                st.success("Dados registrados com sucesso!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao gravar dados: {e}")
 
-# --- VISUALIZAÇÃO E RELATÓRIO ---
+# --- VISUALIZAÇÃO ---
 if conexao_ok:
     try:
-        # Recarrega os dados para mostrar o histórico atualizado
         dados_salvos = conn.read(ttl=0)
-        
         if not dados_salvos.empty:
             st.divider()
-            st.subheader("📊 Totais Acumulados por Pessoa")
+            st.subheader("📊 Totais Acumulados")
             
-            # Cálculo dinâmico de gastos por indivíduo
-            calculo_resumo = {}
+            resumo = {}
             for _, linha in dados_salvos.iterrows():
-                # Soma para Pessoa 1
                 n1, v1 = linha['P1_Nome'], float(linha['P1_Valor'])
-                calculo_resumo[n1] = calculo_resumo.get(n1, 0) + v1
-                # Soma para Pessoa 2 (se não for nulo)
+                resumo[n1] = resumo.get(n1, 0) + v1
                 if linha['P2_Nome'] != "-":
                     n2, v2 = linha['P2_Nome'], float(linha['P2_Valor'])
-                    calculo_resumo[n2] = calculo_resumo.get(n2, 0) + v2
+                    resumo[n2] = resumo.get(n2, 0) + v2
             
-            # Exibição dos totais em colunas de destaque
-            col_metrics = st.columns(len(calculo_resumo))
-            for idx, (nome, total) in enumerate(calculo_resumo.items()):
+            col_metrics = st.columns(len(resumo))
+            for idx, (nome, total) in enumerate(resumo.items()):
                 col_metrics[idx].metric(nome, formatar_real(total))
             
-            st.write("### 📋 Histórico Completo")
             st.dataframe(dados_salvos, use_container_width=True)
     except:
-        st.info("Aguardando o primeiro registro para exibir o histórico e totais.")
+        st.info("Aguardando o primeiro registro para exibir o histórico.")

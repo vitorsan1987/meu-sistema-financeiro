@@ -79,9 +79,9 @@ with tabs[0]: # COMPRAS
             
             col_p1, col_p2 = st.columns(2)
             with col_p1:
-                p_total_input = st.number_input("Total de Parcelas", min_value=1, value=1)
+                p_total_in = st.number_input("Total de Parcelas", min_value=1, value=1)
             with col_p2:
-                p_atual_input = st.number_input("Parcela Atual", min_value=1, value=1)
+                p_atual_in = st.number_input("Parcela Atual", min_value=1, value=1)
             
             cartoes_lista = df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum"]
             cartao_sel = st.selectbox("Cartão", cartoes_lista)
@@ -93,8 +93,8 @@ with tabs[0]: # COMPRAS
                         "nome": item, 
                         "valor_total": valor, 
                         "cartao": cartao_sel,
-                        "parcelas_total": int(p_total_input),
-                        "parcela_atual": int(p_atual_input),
+                        "parcelas_total": int(p_total_in),
+                        "parcela_atual": int(p_atual_in),
                         "participes": ",".join(quem), 
                         "valor_por_pessoa": round(valor/len(quem), 2),
                         "data": datetime.now().strftime("%d/%m/%Y")
@@ -103,19 +103,21 @@ with tabs[0]: # COMPRAS
     with c2:
         st.subheader("📋 Histórico")
         if not df_compras.empty:
-            # Ordenar para ver o mais novo primeiro
             df_hist = df_compras.sort_values(by="id", ascending=False)
             for _, r in df_hist.iterrows():
-                # --- AQUI ESTÁ A CORREÇÃO DA ORDEM ---
-                atual = int(r['parcela_atual'])
-                total = int(r['parcelas_total'])
                 
-                info_p = f"<span class='parcela-tag'>{atual} de {total}x</span>" if total > 1 else ""
+                # --- LÓGICA DE EXIBIÇÃO SEM ERRO ---
+                # Pegamos os valores brutos para garantir que não há confusão
+                val_atual = int(r['parcela_atual'])
+                val_total = int(r['parcelas_total'])
+                
+                # Montamos a tag: "6 de 12x"
+                tag_html = f"<span class='parcela-tag'>{val_atual} de {val_total}x</span>" if val_total > 1 else ""
                 
                 st.markdown(f"""
                 <div class="historico-container">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span><b>{r['nome']}</b> {info_p}</span> 
+                        <span><b>{r['nome']}</b> {tag_html}</span> 
                         <b style="color:#8A05BE;">{format_real(r['valor_total'])}</b>
                     </div>
                     <div style="font-size:0.85em; color:#8b949e; margin-top:5px;">
@@ -151,7 +153,7 @@ with tabs[1]: # FIXAS
                     st.rerun()
 
 with tabs[2]: # RESUMO MENSAL
-    st.subheader("📊 Resumo Mensal (Apenas parcelas do mês)")
+    st.subheader("📊 Resumo Mensal")
     res_cols = st.columns(len(LISTA_NOMES))
     for i, nome in enumerate(LISTA_NOMES):
         total_c_mes = 0
@@ -159,13 +161,9 @@ with tabs[2]: # RESUMO MENSAL
             for _, r in df_compras.iterrows():
                 participantes = str(r['participes']).split(',')
                 if nome in participantes:
-                    # Calcula o valor da parcela individual deste mês
-                    # Ex: (300 total / 10 parcelas) / 2 pessoas = 15,00 por mês
-                    v_total_compra = float(r['valor_total'])
-                    qtd_parcelas = int(r['parcelas_total'])
-                    v_parcela_mes = v_total_compra / qtd_parcelas
-                    v_por_pessoa_mes = v_parcela_mes / len(participantes)
-                    total_c_mes += v_por_pessoa_mes
+                    # Cálculo: (Valor Total / Parcelas) / Envolvidos
+                    v_base = float(r['valor_total']) / int(r['parcelas_total'])
+                    total_c_mes += v_base / len(participantes)
         
         total_f = 0
         if not df_fixos.empty:

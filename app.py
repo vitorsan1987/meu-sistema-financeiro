@@ -31,7 +31,7 @@ st.markdown("""
     .stApp { background-color: #0e1117; color: #ffffff; }
     [data-testid="stSidebar"] { background-color: #161b22; border-right: 1px solid #30363d; }
     .historico-container { background: #161b22; padding: 15px; border-radius: 10px; border: 1px solid #30363d; margin-bottom: 10px; }
-    .card-resumo { background: #1c2128; padding: 20px; border-radius: 12px; border: 1px solid #444c56; margin-bottom: 15px; }
+    .card-resumo { background: #1c2128; padding: 20px; border-radius: 12px; border: 1px solid #444c56; margin-bottom: 15px; min-height: 150px; }
     .parcela-tag { background: #8A05BE; color: white; padding: 3px 10px; border-radius: 6px; font-size: 0.75em; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
@@ -46,7 +46,6 @@ with st.sidebar:
     st.markdown("<h2 style='color:#8A05BE;'>💳 Meus Cartões</h2>", unsafe_allow_html=True)
     if not df_cartoes.empty:
         for _, r in df_cartoes.iterrows():
-            # Soma o valor total bruto das compras vinculadas a este cartão
             total_card = df_compras[df_compras['cartao'] == r['nome']]['valor_total'].sum() if not df_compras.empty else 0.0
             st.markdown(f"""
             <div style="background:{r['cor']}; padding:15px; border-radius:10px; margin-bottom:10px; color:white;">
@@ -72,10 +71,9 @@ with st.sidebar:
 # --- CONTEÚDO PRINCIPAL ---
 tabs = st.tabs(["🛒 Compras", "🏠 Contas Fixas", "📊 Resumo Mensal"])
 
-# --- TABELA DE COMPRAS ---
+# --- ABA DE COMPRAS ---
 with tabs[0]:
     col1, col2 = st.columns([1, 1.3])
-    
     with col1:
         st.subheader("Registrar Gasto")
         with st.form("form_compra", clear_on_submit=True):
@@ -111,15 +109,13 @@ with tabs[0]:
         if not df_compras.empty:
             df_hist = df_compras.sort_values(by="id", ascending=False)
             for _, r in df_hist.iterrows():
-                # --- CORREÇÃO DE SEGURANÇA (TRAVA LÓGICA) ---
+                # Trava visual para garantir "Menor de Maior" (ex: 6 de 12x)
                 v_a = int(r.get('parcela_atual', 1))
                 v_t = int(r.get('parcelas_total', 1))
+                p_atual = min(v_a, v_t)
+                p_total = max(v_a, v_t)
                 
-                # Garante que o menor número seja o 'atual' e o maior o 'total'
-                atual_show = min(v_a, v_t)
-                total_show = max(v_a, v_t)
-                
-                tag_parc = f"<span class='parcela-tag'>{atual_show} de {total_show}x</span>" if total_show > 1 else ""
+                tag_parc = f"<span class='parcela-tag'>{p_atual} de {p_total}x</span>" if p_total > 1 else ""
                 
                 st.markdown(f"""
                 <div class="historico-container">
@@ -150,9 +146,7 @@ with tabs[1]:
             p2_v = st.number_input("Quanto P2 paga", min_value=0.0)
             if st.form_submit_button("📌 Salvar"):
                 supabase.table("fixos").insert({
-                    "item": servico, "valor": v_fixo, 
-                    "p1_nome": p1_n, "p1_valor": p1_v, 
-                    "p2_nome": p2_n, "p2_valor": p2_v
+                    "item": servico, "valor": v_fixo, "p1_nome": p1_n, "p1_valor": p1_v, "p2_nome": p2_n, "p2_valor": p2_v
                 }).execute()
                 st.rerun()
     with f2:
@@ -164,35 +158,45 @@ with tabs[1]:
                     supabase.table("fixos").delete().eq("id", r['id']).execute()
                     st.rerun()
 
-# --- ABA DE RESUMO MENSAL ---
+# --- ABA DE RESUMO MENSAL (LÓGICA CORRIGIDA) ---
 with tabs[2]:
     st.subheader("📊 Resumo Mensal (Parcelas do Mês)")
     res_cols = st.columns(len(LISTA_NOMES))
+    
     for i, nome in enumerate(LISTA_NOMES):
-        total_c_mes = 0
+        total_c_mes = 0.0
+        
         if not df_compras.empty:
             for _, r in df_compras.iterrows():
-                parts = str(r['participes']).split(',')
-                if nome in parts:
-                    # Cálculo: (Valor Total / Maior número de parcelas) / Qtd de Pessoas
-                    # Usamos max() aqui também para garantir o cálculo correto da parcela
-                    total_parcs = max(int(r.get('parcelas_total', 1)), int(r.get('parcela_atual', 1)))
-                    v_mes_unidade = float(r['valor_total']) / total_parcs
-                    total_c_mes += v_mes_unidade / len(parts)
+                # Limpa espaços extras para garantir a comparação do nome
+                participantes = [p.strip() for p in str(r['participes']).split(',')]
+                
+                if nome in participantes:
+                    v_total = float(r['valor_total'])
+                    # Garante que usamos o maior valor como o total de parcelas para o cálculo
+                    v_a_calc = int(r.get('parcela_atual', 1))
+                    v_t_calc = int(r.get('parcelas_total', 1))
+                    parcs_divisor = max(v_a_calc, v_t_calc)
+                    
+                    # Valor de uma parcela única da compra
+                    valor_da_parcela = v_total / parcs_divisor
+                    # Divide o valor dessa parcela pelo número de pessoas envolvidas
+                    total_c_mes += valor_da_parcela / len(participantes)
         
-        total_f = 0
+        total_f = 0.0
         if not df_fixos.empty:
-            total_f = df_fixos[df_fixos['p1_nome'] == nome]['p1_valor'].sum() + \
-                      df_fixos[df_fixos['p2_nome'] == nome]['p2_valor'].sum()
+            v1 = df_fixos[df_fixos['p1_nome'] == nome]['p1_valor'].sum()
+            v2 = df_fixos[df_fixos['p2_nome'] == nome]['p2_valor'].sum()
+            total_f = float(v1 + v2)
         
         with res_cols[i]:
             st.markdown(f"""
             <div class="card-resumo">
-                <small style="text-transform:uppercase; color:#768390;">{nome}</small><br>
+                <small style="text-transform:uppercase; color:#768390; letter-spacing:1px;">{nome}</small><br>
                 <b style="font-size:1.6em; color:#adbac7;">{format_real(total_c_mes + total_f)}</b><br>
-                <div style="font-size:0.75em; color:#8b949e; margin-top:10px;">
-                    Compras Parc: {format_real(total_c_mes)}<br>
-                    Fixos: {format_real(total_f)}
+                <div style="font-size:0.85em; color:#8b949e; margin-top:10px; border-top:1px solid #333; padding-top:5px;">
+                    Compras (Parc.): {format_real(total_c_mes)}<br>
+                    Contas Fixas: {format_real(total_f)}
                 </div>
             </div>
             """, unsafe_allow_html=True)

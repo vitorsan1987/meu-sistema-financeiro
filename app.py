@@ -25,13 +25,12 @@ def get_data(tabela):
 def format_real(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- ESTILO CSS (LAYOUT MELHORADO) ---
+# --- ESTILO CSS ---
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: #ffffff; }
     [data-testid="stSidebar"] { background-color: #161b22; border-right: 1px solid #30363d; min-width: 300px; }
     
-    /* Layout do Cartão na Sidebar */
     .cartao-container { 
         background: #8A05BE; 
         padding: 20px; 
@@ -45,13 +44,22 @@ st.markdown("""
         justify-content: space-between;
     }
     
-    /* Containers do Histórico e Resumo */
     .historico-container { background: #161b22; padding: 15px; border-radius: 10px; border: 1px solid #30363d; margin-bottom: 10px; }
     .card-resumo { background: #1c2128; padding: 20px; border-radius: 12px; border: 1px solid #444c56; margin-bottom: 15px; min-height: 150px; }
     .parcela-tag { background: #8A05BE; color: white; padding: 3px 10px; border-radius: 6px; font-size: 0.75em; font-weight: bold; }
     
-    /* Preview de Confirmação */
-    .info-preview { background: #21262d; padding: 10px; border-radius: 5px; border-left: 5px solid #00ff00; margin-bottom: 15px; }
+    /* Estilo para as Chips de Participantes */
+    .chip {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 16px;
+        background-color: #30363d;
+        color: #adbac7;
+        font-size: 0.85em;
+        margin-right: 5px;
+        margin-bottom: 5px;
+        border: 1px solid #444c56;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -102,40 +110,29 @@ with tabs[0]:
     with col1:
         st.subheader("Registrar Gasto")
         with st.form("form_compra", clear_on_submit=True):
-            item = st.text_input("Descrição (Ex: Empréstimo)")
+            item = st.text_input("O que comprou?")
             
-            tipo_valor = st.radio("Como deseja inserir o valor?", ["Valor da Parcela (Mensal)", "Valor Total da Compra"])
-            valor_digitado = st.number_input("Valor", min_value=0.0, format="%.2f")
+            tipo_valor = st.radio("Entrada por:", ["Parcela Mensal", "Valor Total"], horizontal=True)
+            valor_digitado = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
             
             cp1, cp2 = st.columns(2)
             with cp1:
-                p_atual_in = st.number_input("Parcela Atual", min_value=1, value=1)
+                p_atual_in = st.number_input("Parc. Atual", min_value=1, value=1)
             with cp2:
-                p_total_in = st.number_input("Total de Parcelas", min_value=1, value=1)
+                p_total_in = st.number_input("Total Parc.", min_value=1, value=1)
             
-            # Lógica de Cálculo para Preview
-            if tipo_valor == "Valor da Parcela (Mensal)":
-                valor_total_calc = valor_digitado * p_total_in
-                parcela_mensal_total = valor_digitado
-            else:
-                valor_total_calc = valor_digitado
-                parcela_mensal_total = valor_digitado / p_total_in if p_total_in > 0 else 0
-
-            lista_c = df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum"]
-            cartao_sel = st.selectbox("Cartão", lista_c)
+            cartao_sel = st.selectbox("Cartão", df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum"])
+            
+            # Seleção de participantes mais limpa
             quem = st.multiselect("Dividir com:", LISTA_NOMES)
             
-            if valor_digitado > 0 and quem:
-                cada_um = parcela_mensal_total / len(quem)
-                st.markdown(f"""
-                <div class="info-preview">
-                    <b>Confirmação do Resumo:</b><br>
-                    Parcela Mensal Total: {format_real(parcela_mensal_total)}<br>
-                    Cada pessoa pagará: <b>{format_real(cada_um)}</b>
-                </div>
-                """, unsafe_allow_html=True)
+            # Cálculo interno
+            if tipo_valor == "Parcela Mensal":
+                valor_total_calc = valor_digitado * p_total_in
+            else:
+                valor_total_calc = valor_digitado
 
-            if st.form_submit_button("🚀 Salvar Gasto"):
+            if st.form_submit_button("🚀 Salvar"):
                 if item and valor_digitado > 0 and quem:
                     supabase.table("compras").insert({
                         "nome": item, 
@@ -153,25 +150,24 @@ with tabs[0]:
         if not df_compras.empty:
             df_hist = df_compras.sort_values(by="id", ascending=False)
             for _, r in df_hist.iterrows():
-                # Lógica para mostrar valor da parcela no histórico
                 v_total = float(r['valor_total'])
                 p_total = int(r['parcelas_total'])
-                valor_parcela_historico = v_total / p_total if p_total > 0 else v_total
+                v_mensal = v_total / p_total if p_total > 0 else v_total
                 
-                # Trava visual para parcela (menor de maior)
-                v_a = int(r.get('parcela_atual', 1))
-                p_atual_tag = min(v_a, p_total)
+                tag_parc = f"<span class='parcela-tag'>{int(r['parcela_atual'])} de {p_total}x</span>" if p_total > 1 else ""
                 
-                tag_parc = f"<span class='parcela-tag'>{p_atual_tag} de {p_total}x</span>" if p_total > 1 else ""
+                # Exibição visual dos participantes como "chips"
+                chips_html = "".join([f'<span class="chip">{p.strip()}</span>' for p in str(r['participes']).split(',')])
                 
                 st.markdown(f"""
                 <div class="historico-container">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <span><b>{r['nome']}</b> {tag_parc}</span> 
-                        <b style="color:#8A05BE;">{format_real(valor_parcela_historico)}</b>
+                        <b style="color:#8A05BE;">{format_real(v_mensal)}</b>
                     </div>
-                    <div style="font-size:0.85em; color:#8b949e; margin-top:5px;">
-                        {r['data']} | {r['cartao']} | {str(r['participes']).replace(',', ', ')}
+                    <div style="margin-top:8px;">{chips_html}</div>
+                    <div style="font-size:0.8em; color:#8b949e; margin-top:5px;">
+                        {r['data']} | {r['cartao']}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -189,14 +185,10 @@ with tabs[2]:
             for _, r in df_compras.iterrows():
                 parts = [p.strip() for p in str(r['participes']).split(',')]
                 if nome in parts:
-                    v_total = float(r['valor_total'])
-                    v_parc_t = int(r.get('parcelas_total', 1))
-                    total_c_mes += (v_total / v_parc_t) / len(parts)
+                    total_c_mes += (float(r['valor_total']) / int(r['parcelas_total'])) / len(parts)
         
-        total_f = 0.0
-        if not df_fixos.empty:
-            total_f = df_fixos[df_fixos['p1_nome'] == nome]['p1_valor'].sum() + \
-                      df_fixos[df_fixos['p2_nome'] == nome]['p2_valor'].sum()
+        total_f = df_fixos[df_fixos['p1_nome'] == nome]['p1_valor'].sum() + \
+                  df_fixos[df_fixos['p2_nome'] == nome]['p2_valor'].sum() if not df_fixos.empty else 0.0
         
         with res_cols[i]:
             st.markdown(f"""
@@ -204,8 +196,8 @@ with tabs[2]:
                 <small style="text-transform:uppercase; color:#768390;">{nome}</small><br>
                 <b style="font-size:1.6em; color:#adbac7;">{format_real(total_c_mes + total_f)}</b><br>
                 <div style="font-size:0.85em; color:#8b949e; margin-top:10px; border-top:1px solid #333; padding-top:5px;">
-                    Compras (Parc.): {format_real(total_c_mes)}<br>
-                    Fixos: {format_real(total_f)}
+                    Variável: {format_real(total_c_mes)}<br>
+                    Fixas: {format_real(total_f)}
                 </div>
             </div>
             """, unsafe_allow_html=True)

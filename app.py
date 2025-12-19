@@ -27,17 +27,20 @@ def get_data(tabela):
 def format_real(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- ESTILO CSS (MODERNO E SCANNABLE) ---
+# --- ESTILO CSS (MODERNO E VISÍVEL) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: #ffffff; }
     [data-testid="stSidebar"] { background-color: #161b22; border-right: 1px solid #30363d; min-width: 300px; }
     
-    /* Estilização do Selectbox para maior visibilidade */
+    /* FUNDO DA ESCOLHA DO CARTÃO E SELECTS MAIS VISÍVEIS */
     div[data-baseweb="select"] {
         background-color: #1c2128 !important;
         border-radius: 8px !important;
         border: 1px solid #444c56 !important;
+    }
+    div[role="listbox"] ul {
+        background-color: #1c2128 !important;
     }
     
     /* Cartão na Sidebar */
@@ -53,18 +56,11 @@ st.markdown("""
         border: 1px solid #30363d; margin-bottom: 12px; 
     }
     
-    /* Resumo Mensal */
-    .card-resumo { 
-        background: #1c2128; padding: 20px; border-radius: 12px; 
-        border: 1px solid #444c56; margin-bottom: 15px; min-height: 150px; 
-    }
-    
-    /* Tags */
+    /* Tags e Chips */
     .parcela-tag { 
         background: #30363d; color: #adbac7; padding: 2px 8px; border-radius: 4px; 
         font-size: 0.75em; font-weight: bold; border: 1px solid #444c56; margin-left: 8px;
     }
-    
     .chip { 
         display: inline-block; padding: 2px 10px; border-radius: 12px; 
         background-color: #21262d; color: #8b949e; font-size: 0.8em; 
@@ -81,6 +77,7 @@ with col_m1:
     mes_selecionado = st.selectbox("📅 Selecione o Mês", MESES, index=datetime.now().month - 1)
 
 with col_m2:
+    # Calendário para alterar o ano
     data_ano = st.date_input("📅 Selecione o Ano", value=datetime.now())
     ano_selecionado = data_ano.year
 
@@ -125,6 +122,7 @@ with st.sidebar:
                 supabase.table("cartoes").delete().eq("id", r['id']).execute()
                 st.rerun()
 
+    # Opção para adicionar mais cartões
     with st.expander("➕ Adicionar Novo Cartão"):
         with st.form("form_cartao", clear_on_submit=True):
             n_nome = st.text_input("Banco")
@@ -147,16 +145,24 @@ with tabs[0]:
             
             v_col1, v_col2 = st.columns([1.5, 1])
             with v_col1:
+                # Campo de valor em branco
                 val_in = st.number_input("Valor (R$)", min_value=0.0, format="%.2f", value=None)
             with v_col2:
                 tipo_in = st.selectbox("Lançar por:", ["Parcela Mensal", "Valor Total"])
             
             p_col1, p_col2 = st.columns(2)
+            # Campos de parcela em branco
             with p_col1: p_at = st.number_input("Parc. Atual", min_value=1, value=None)
             with p_col2: p_to = st.number_input("Total Parc.", min_value=1, value=None)
             
+            # Campo de seleção de cartão em branco
             cartoes_opcoes = df_cartoes['nome'].tolist() if not df_cartoes.empty else []
-            cartao_sel = st.selectbox("Selecione o Cartão", options=cartoes_opcoes, index=None, placeholder="Clique para selecionar...")
+            cartao_sel = st.selectbox(
+                "Selecione o Cartão", 
+                options=cartoes_opcoes, 
+                index=None, 
+                placeholder="Clique para selecionar..."
+            )
             
             quem = st.multiselect("Quem vai pagar?", LISTA_NOMES)
             
@@ -177,8 +183,10 @@ with tabs[0]:
         st.subheader(f"📋 Histórico ({mes_selecionado})")
         if not df_compras.empty:
             for _, r in df_compras.sort_values(by="id", ascending=False).iterrows():
+                # CORREÇÃO DO NameError: garantindo que v_mensal exista
                 divisor_h = int(r['parcelas_total']) if int(r['parcelas_total']) > 0 else 1
                 v_mensal = float(r['valor_total']) / divisor_h
+                
                 cor_v = cores_cartoes.get(r['cartao'], "#ffffff")
                 chips = "".join([f'<span class="chip">{p.strip()}</span>' for p in str(r['participes']).split(',')])
                 
@@ -190,18 +198,18 @@ with tabs[0]:
                             <div style="margin-top:2px;">{chips}</div>
                         </div>
                         <div style="text-align:right;">
-                            <b style="color:{cor_v}; font-size:1.2em;">{format_real(v_mes)}</b>
+                            <b style="color:{cor_v}; font-size:1.2em;">{format_real(v_mensal)}</b>
                             <div style="font-size:0.75em; color:#8b949e; margin-top:4px;">{r['cartao']} | {r['data']}</div>
                         </div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-                if st.button("🗑️ Apagar", key=f"del_h_{r['id']}"):
+                if st.button("🗑️", key=f"del_h_{r['id']}"):
                     supabase.table("compras").delete().eq("id", r['id']).execute()
                     st.rerun()
 
 with tabs[2]: 
-    st.subheader(f"📊 Resumo Geral ({mes_selecionado})")
+    st.subheader(f"📊 Resumo Mensal ({mes_selecionado})")
     r_cols = st.columns(len(LISTA_NOMES))
     for i, nome in enumerate(LISTA_NOMES):
         total_c = 0.0

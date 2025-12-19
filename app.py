@@ -26,27 +26,23 @@ def get_data(tabela):
 def format_real(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- ESTILO CSS MODERNO ---
+# --- ESTILO CSS ---
 st.markdown("""
     <style>
-    /* Estilo Geral */
     .stApp { background-color: #0e1117; color: #ffffff; }
     [data-testid="stSidebar"] { background-color: #161b22; border-right: 1px solid #30363d; min-width: 300px; }
     
-    /* Cartão Lateral */
     .cartao-container { 
         padding: 20px; border-radius: 15px; margin-bottom: 15px; color: white; 
         min-height: 150px; display: flex; flex-direction: column; justify-content: space-between; 
         box-shadow: 0 4px 15px rgba(0,0,0,0.3); 
     }
     
-    /* Histórico */
     .historico-container { 
         background: #1c2128; padding: 18px; border-radius: 12px; 
         border: 1px solid #30363d; margin-bottom: 12px; 
     }
     
-    /* Tags e Chips */
     .parcela-tag { 
         background: #30363d; color: #adbac7; padding: 2px 8px; border-radius: 4px; 
         font-size: 0.75em; font-weight: bold; border: 1px solid #444c56; margin-left: 8px;
@@ -57,22 +53,20 @@ st.markdown("""
         background-color: #21262d; color: #8b949e; font-size: 0.8em; 
         margin-right: 6px; border: 1px solid #333; margin-top: 8px;
     }
-
-    /* Reset de Cor no Multiselect (Remove o roxo invasivo) */
-    .stMultiSelect span { color: white !important; }
-    
-    /* Estilo dos Botões */
-    .stButton button { width: 100%; border-radius: 8px; transition: 0.3s; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FILTRO DE MÊS NO TOPO ---
+# --- FILTRO DE PERÍODO (MÊS E CALENDÁRIO PARA ANO) ---
 st.markdown("## 📊 Controle Financeiro")
 col_m1, col_m2 = st.columns([1, 1])
+
 with col_m1:
     mes_selecionado = st.selectbox("📅 Selecione o Mês", MESES, index=datetime.now().month - 1)
+
 with col_m2:
-    ano_selecionado = st.number_input("📅 Ano", min_value=2024, max_value=2030, value=datetime.now().year)
+    # Substituição do +/- pelo Calendário para selecionar o Ano
+    data_ano = st.date_input("📅 Selecione o Ano", value=datetime.now(), help="Clique para abrir o calendário e escolher o ano")
+    ano_selecionado = data_ano.year
 
 mes_idx = str(MESES.index(mes_selecionado) + 1).zfill(2)
 filtro_data = f"/{mes_idx}/{ano_selecionado}"
@@ -82,10 +76,7 @@ df_cartoes = get_data("cartoes")
 df_compras_raw = get_data("compras")
 df_fixos = get_data("fixos")
 
-# Dicionário de cores para o histórico
 cores_cartoes = dict(zip(df_cartoes['nome'], df_cartoes['cor'])) if not df_cartoes.empty else {}
-
-# Filtrar compras pelo mês
 df_compras = df_compras_raw[df_compras_raw['data'].str.contains(filtro_data)] if not df_compras_raw.empty else pd.DataFrame()
 
 # --- BARRA LATERAL ---
@@ -119,7 +110,7 @@ with st.sidebar:
     with st.expander("➕ Adicionar Cartão"):
         with st.form("form_cartao", clear_on_submit=True):
             n_nome = st.text_input("Banco")
-            n_cor = st.color_picker("Escolha a cor do cartão", "#8A05BE")
+            n_cor = st.color_picker("Cor do Cartão", "#8A05BE")
             n_final = st.text_input("4 últimos dígitos", max_chars=4)
             if st.form_submit_button("Salvar"):
                 if n_nome and n_final:
@@ -134,21 +125,16 @@ with tabs[0]:
     with c1:
         st.subheader("Registrar Gasto")
         with st.form("form_compra", clear_on_submit=True):
-            item = st.text_input("O que você comprou?")
-            
+            item = st.text_input("Descrição")
             v_col1, v_col2 = st.columns([1.5, 1])
-            with v_col1:
-                val_in = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-            with v_col2:
-                tipo_in = st.selectbox("Lançar por:", ["Parcela Mensal", "Valor Total"])
+            with v_col1: val_in = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+            with v_col2: tipo_in = st.selectbox("Lançar por:", ["Parcela Mensal", "Valor Total"])
             
             p_col1, p_col2 = st.columns(2)
-            with p_col1: p_at = st.number_input("Parcela que está", min_value=1, value=1)
-            with p_col2: p_to = st.number_input("Total de Parcelas", min_value=1, value=1)
+            with p_col1: p_at = st.number_input("Parcela Atual", min_value=1, value=1)
+            with p_col2: p_to = st.number_input("Total Parcelas", min_value=1, value=1)
             
-            cartoes_opcoes = df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum cartão"]
-            cartao_sel = st.selectbox("Cartão Utilizado", cartoes_opcoes)
-            
+            cartao_sel = st.selectbox("Selecione o Cartão", df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum"])
             quem = st.multiselect("Quem vai pagar?", LISTA_NOMES)
             
             if st.form_submit_button("🚀 Salvar Gasto"):
@@ -163,19 +149,17 @@ with tabs[0]:
                     st.rerun()
                     
     with c2:
-        st.subheader(f"📋 Compras de {mes_selecionado}")
+        st.subheader(f"📋 Histórico ({mes_selecionado})")
         if not df_compras.empty:
             for _, r in df_compras.sort_values(by="id", ascending=False).iterrows():
                 v_mes = float(r['valor_total']) / int(r['parcelas_total'])
                 cor_v = cores_cartoes.get(r['cartao'], "#ffffff")
                 chips = "".join([f'<span class="chip">{p.strip()}</span>' for p in str(r['participes']).split(',')])
-                
                 st.markdown(f"""
                 <div class="historico-container">
                     <div style="display:flex; justify-content:space-between; align-items:start;">
                         <div>
-                            <span style="font-size:1.1em; font-weight:bold;">{r['nome']}</span>
-                            <span class='parcela-tag'>{int(r['parcela_atual'])} de {int(r['parcelas_total'])}x</span>
+                            <b>{r['nome']}</b> <span class='parcela-tag'>{int(r['parcela_atual'])} de {int(r['parcelas_total'])}x</span>
                             <div style="margin-top:2px;">{chips}</div>
                         </div>
                         <div style="text-align:right;">
@@ -200,20 +184,18 @@ with tabs[2]:
                 if nome in parts:
                     total_c += (float(r['valor_total']) / int(r['parcelas_total'])) / len(parts)
         
-        # Proteção contra erro na tabela de fixos
+        # Proteção contra KeyError (Correção para a imagem de erro enviada)
         total_f = 0.0
         if not df_fixos.empty and 'p1_nome' in df_fixos.columns:
             f1 = df_fixos[df_fixos['p1_nome'] == nome]['p1_valor'].sum()
-            f2 = 0.0
-            if 'p2_nome' in df_fixos.columns:
-                f2 = df_fixos[df_fixos['p2_nome'] == nome]['p2_valor'].sum()
+            f2 = df_fixos[df_fixos['p2_nome'] == nome]['p2_valor'].sum() if 'p2_nome' in df_fixos.columns else 0.0
             total_f = float(f1 + f2)
         
         with r_cols[i]:
             st.markdown(f"""
             <div class="card-resumo">
-                <small style="text-transform:uppercase; color:#768390; letter-spacing:1px;">{nome}</small><br>
-                <b style="font-size:1.7em; color:#adbac7;">{format_real(total_c + total_f)}</b><br>
+                <small style="text-transform:uppercase; color:#768390;">{nome}</small><br>
+                <b style="font-size:1.7em;">{format_real(total_c + total_f)}</b><br>
                 <div style="font-size:0.85em; color:#8b949e; margin-top:12px; border-top:1px solid #333; padding-top:8px;">
                     🛒 Compras: {format_real(total_c)}<br>
                     🏠 Fixas: {format_real(total_f)}

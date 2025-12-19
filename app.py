@@ -31,7 +31,7 @@ st.markdown("""
     [data-testid="stSidebar"] { background-color: #161b22; border-right: 1px solid #30363d; }
     .historico-container { background: #161b22; padding: 15px; border-radius: 10px; border: 1px solid #30363d; margin-bottom: 10px; }
     .card-resumo { background: #1c2128; padding: 20px; border-radius: 12px; border: 1px solid #444c56; margin-bottom: 15px; }
-    .parcela-tag { background: #8A05BE; color: white; padding: 2px 8px; border-radius: 5px; font-size: 0.7em; }
+    .parcela-tag { background: #8A05BE; color: white; padding: 2px 8px; border-radius: 5px; font-size: 0.75em; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -62,11 +62,11 @@ with st.sidebar:
             n_nome = st.text_input("Banco")
             n_cor = st.color_picker("Cor", "#8A05BE")
             n_final = st.text_input("4 dígitos", max_chars=4)
-            if st.form_submit_button("Salvar"):
+            if st.form_submit_button("Salvar Cartão"):
                 supabase.table("cartoes").insert({"nome": n_nome, "cor": n_cor, "final": n_final, "venc": "28"}).execute()
                 st.rerun()
 
-# --- CONTEÚDO ---
+# --- CONTEÚDO PRINCIPAL ---
 tabs = st.tabs(["🛒 Compras", "🏠 Contas Fixas", "📊 Resumo Mensal"])
 
 with tabs[0]: # COMPRAS
@@ -86,9 +86,8 @@ with tabs[0]: # COMPRAS
             cartao = st.selectbox("Cartão", df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum"])
             quem = st.multiselect("Dividir com:", LISTA_NOMES)
             
-            if st.form_submit_button("🚀 Salvar"):
+            if st.form_submit_button("🚀 Salvar Gasto"):
                 if item and valor > 0 and quem:
-                    # Salva o valor total dividido entre os participantes para fins de histórico
                     v_pessoa_total = round(valor / len(quem), 2)
                     supabase.table("compras").insert({
                         "nome": item, 
@@ -101,18 +100,23 @@ with tabs[0]: # COMPRAS
                         "data": datetime.now().strftime("%d/%m/%Y")
                     }).execute()
                     st.rerun()
+
     with c2:
-        st.subheader("Histórico")
+        st.subheader("📋 Histórico")
         if not df_compras.empty:
             for _, r in df_compras.iloc[::-1].iterrows():
-                info_p = f"<span class='parcela-tag'>{r['parcela_atual']} de {r['parcelas_total']}x</span>" if r['parcelas_total'] > 1 else ""
+                # CORREÇÃO DA ORDEM: Parcela Atual de Total de Parcelas (ex: 6 de 12x)
+                info_p = f"<span class='parcela-tag'>{int(r['parcela_atual'])} de {int(r['parcelas_total'])}x</span>" if r['parcelas_total'] > 1 else ""
+                
                 st.markdown(f"""
                 <div class="historico-container">
-                    <div style="display:flex; justify-content:space-between;">
-                        <b>{r['nome']} {info_p}</b> 
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span><b>{r['nome']}</b> {info_p}</span> 
                         <b>{format_real(r['valor_total'])}</b>
                     </div>
-                    <small>{r['data']} | {r['cartao']} | {r['participes']}</small>
+                    <div style="font-size:0.85em; color:#8b949e; margin-top:5px;">
+                        {r['data']} | {r['cartao']} | {str(r['participes']).replace(',', ', ')}
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
                 if st.button("🗑️ Apagar", key=f"del_h_{r['id']}"):
@@ -127,23 +131,32 @@ with tabs[1]: # FIXAS
             servico = st.text_input("Serviço")
             v_total = st.number_input("Valor Total", min_value=0.0)
             p1_n = st.selectbox("Quem paga (1)", LISTA_NOMES)
-            p1_v = st.number_input("Valor P1", min_value=0.0)
+            p1_v = st.number_input("Quanto a pessoa 1 paga?", min_value=0.0)
             p2_n = st.selectbox("Quem paga (2) - Opcional", [""] + LISTA_NOMES)
-            p2_v = st.number_input("Valor P2", min_value=0.0)
-            if st.form_submit_button("📌 Salvar"):
-                supabase.table("fixos").insert({"item": servico, "valor": v_total, "p1_nome": p1_n, "p1_valor": p1_v, "p2_nome": p2_n, "p2_valor": p2_v}).execute()
+            p2_v = st.number_input("Quanto a pessoa 2 paga?", min_value=0.0)
+            if st.form_submit_button("📌 Salvar Conta Fixa"):
+                supabase.table("fixos").insert({
+                    "item": servico, "valor": v_total, 
+                    "p1_nome": p1_n, "p1_valor": p1_v, 
+                    "p2_nome": p2_n, "p2_valor": p2_v
+                }).execute()
                 st.rerun()
     with f2:
-        st.subheader("Lista")
+        st.subheader("Lista de Fixas")
         if not df_fixos.empty:
             for _, r in df_fixos.iterrows():
-                st.markdown(f'<div class="historico-container"><b>{r["item"]}</b>: {format_real(r["valor"])}</div>', unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="historico-container">
+                    <b>{r['item']}</b>: {format_real(r['valor'])}
+                    <br><small>{r['p1_nome']} ({format_real(r['p1_valor'])}) {f'| {r["p2_nome"]} ({format_real(r["p2_valor"])})' if r['p2_nome'] else ''}</small>
+                </div>
+                """, unsafe_allow_html=True)
                 if st.button("🗑️", key=f"del_f_{r['id']}"):
                     supabase.table("fixos").delete().eq("id", r['id']).execute()
                     st.rerun()
 
-with tabs[2]: # RESUMO MENSAL (LÓGICA CORRIGIDA)
-    st.subheader("Resumo Mensal (Apenas parcelas do mês)")
+with tabs[2]: # RESUMO MENSAL
+    st.subheader("Resumo Mensal (Parcelas do mês)")
     res_cols = st.columns(len(LISTA_NOMES))
     for i, nome in enumerate(LISTA_NOMES):
         total_c_mes = 0
@@ -151,7 +164,7 @@ with tabs[2]: # RESUMO MENSAL (LÓGICA CORRIGIDA)
             for _, r in df_compras.iterrows():
                 participantes = str(r['participes']).split(',')
                 if nome in participantes:
-                    # CÁLCULO: (Valor Total / Número de Parcelas) / Número de Pessoas
+                    # Calcula o valor da parcela individual deste mês
                     valor_parcela_total = r['valor_total'] / r['parcelas_total']
                     valor_parcela_pessoa = valor_parcela_total / len(participantes)
                     total_c_mes += valor_parcela_pessoa
@@ -165,9 +178,11 @@ with tabs[2]: # RESUMO MENSAL (LÓGICA CORRIGIDA)
         with res_cols[i]:
             st.markdown(f"""
             <div class="card-resumo">
-                <small>{nome}</small><br>
-                <b style="font-size:1.5em; color:#adbac7;">{format_real(total_c_mes + total_f)}</b><br>
-                <small style="color:#768390;">Compras (Parc.): {format_real(total_c_mes)}</small><br>
-                <small style="color:#768390;">Fixos: {format_real(total_f)}</small>
+                <small style="text-transform:uppercase; letter-spacing:1px; color:#768390;">{nome}</small><br>
+                <b style="font-size:1.6em; color:#adbac7;">{format_real(total_c_mes + total_f)}</b><br>
+                <div style="font-size:0.75em; color:#8b949e; margin-top:10px;">
+                    Compras Parc: {format_real(total_c_mes)}<br>
+                    Contas Fixas: {format_real(total_f)}
+                </div>
             </div>
             """, unsafe_allow_html=True)

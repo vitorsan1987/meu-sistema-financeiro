@@ -26,15 +26,46 @@ def get_data(tabela):
 def format_real(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- ESTILO CSS ---
+# --- ESTILO CSS (FOCO NA VISIBILIDADE DO CARTÃO) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: #ffffff; }
     [data-testid="stSidebar"] { background-color: #161b22; border-right: 1px solid #30363d; min-width: 300px; }
-    .cartao-container { padding: 20px; border-radius: 15px; margin-bottom: 15px; color: white; min-height: 150px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
-    .historico-container { background: #1c2128; padding: 18px; border-radius: 12px; border: 1px solid #30363d; margin-bottom: 12px; }
-    .parcela-tag { background: #30363d; color: #adbac7; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: bold; border: 1px solid #444c56; margin-left: 8px; }
-    .chip { display: inline-block; padding: 2px 10px; border-radius: 12px; background-color: #21262d; color: #8b949e; font-size: 0.8em; margin-right: 6px; border: 1px solid #333; margin-top: 8px; }
+    
+    /* Melhoria na visibilidade dos Selectboxes (Cartão e outros) */
+    div[data-baseweb="select"] {
+        background-color: #1c2128 !important;
+        border-radius: 8px !important;
+        border: 1px solid #444c56 !important;
+    }
+    
+    /* Destaque ao clicar no campo de seleção */
+    div[data-baseweb="select"]:focus-within {
+        border-color: #8A05BE !important;
+        box-shadow: 0 0 0 1px #8A05BE !important;
+    }
+
+    .cartao-container { 
+        padding: 20px; border-radius: 15px; margin-bottom: 15px; color: white; 
+        min-height: 150px; display: flex; flex-direction: column; justify-content: space-between; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3); 
+    }
+    
+    .historico-container { 
+        background: #1c2128; padding: 18px; border-radius: 12px; 
+        border: 1px solid #30363d; margin-bottom: 12px; 
+    }
+    
+    .parcela-tag { 
+        background: #30363d; color: #adbac7; padding: 2px 8px; border-radius: 4px; 
+        font-size: 0.75em; font-weight: bold; border: 1px solid #444c56; margin-left: 8px;
+    }
+    
+    .chip { 
+        display: inline-block; padding: 2px 10px; border-radius: 12px; 
+        background-color: #21262d; color: #8b949e; font-size: 0.8em; 
+        margin-right: 6px; border: 1px solid #333; margin-top: 8px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -89,16 +120,6 @@ with st.sidebar:
                 supabase.table("cartoes").delete().eq("id", r['id']).execute()
                 st.rerun()
 
-    with st.expander("➕ Adicionar Novo Cartão"):
-        with st.form("form_cartao", clear_on_submit=True):
-            n_nome = st.text_input("Nome do Banco")
-            n_cor = st.color_picker("Cor", "#8A05BE")
-            n_final = st.text_input("4 últimos dígitos", max_chars=4)
-            if st.form_submit_button("Salvar Cartão"):
-                if n_nome and n_final:
-                    supabase.table("cartoes").insert({"nome": n_nome, "cor": n_cor, "final": n_final, "venc": "28"}).execute()
-                    st.rerun()
-
 # --- ABAS ---
 tabs = st.tabs(["🛒 Lançar Compras", "🏠 Contas Fixas", "📊 Resumo Mensal"])
 
@@ -116,14 +137,8 @@ with tabs[0]:
             with p_col1: p_at = st.number_input("Parcela Atual", min_value=1, value=None)
             with p_col2: p_to = st.number_input("Total Parcelas", min_value=1, value=None)
             
-            # --- AJUSTE: CAMPO DE CARTÃO EM BRANCO ---
             cartoes_opcoes = df_cartoes['nome'].tolist() if not df_cartoes.empty else []
-            cartao_sel = st.selectbox(
-                "Selecione o Cartão", 
-                options=cartoes_opcoes, 
-                index=None, 
-                placeholder="Clique para selecionar..."
-            )
+            cartao_sel = st.selectbox("Selecione o Cartão", options=cartoes_opcoes, index=None, placeholder="Clique para selecionar...")
             
             quem = st.multiselect("Quem vai pagar?", LISTA_NOMES)
             
@@ -138,7 +153,7 @@ with tabs[0]:
                     }).execute()
                     st.rerun()
                 else:
-                    st.warning("Preencha todos os campos e selecione um cartão.")
+                    st.warning("Preencha todos os campos corretamente.")
 
     with c2:
         st.subheader(f"📋 Histórico ({mes_selecionado})")
@@ -178,6 +193,7 @@ with tabs[2]:
                     total_p = int(r['parcelas_total']) if r['parcelas_total'] else 1
                     total_c += (float(r['valor_total']) / total_p) / len(parts)
         
+        # Proteção definitiva contra KeyError 'p1_nome'
         total_f = 0.0
         if not df_fixos.empty and 'p1_nome' in df_fixos.columns:
             f1 = df_fixos[df_fixos['p1_nome'] == nome]['p1_valor'].sum()

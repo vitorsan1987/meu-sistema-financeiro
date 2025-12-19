@@ -60,16 +60,17 @@ df_fixos = get_data("fixos")
 cores_cartoes = dict(zip(df_cartoes['nome'], df_cartoes['cor'])) if not df_cartoes.empty else {}
 df_compras = df_compras_raw[df_compras_raw['data'].str.contains(filtro_data)] if not df_compras_raw.empty else pd.DataFrame()
 
-# --- BARRA LATERAL ---
+# --- BARRA LATERAL (GESTÃO DE CARTÕES) ---
 with st.sidebar:
     st.markdown("<h3 style='color:#8A05BE;'>Meus Cartões</h3>", unsafe_allow_html=True)
+    
+    # Listagem de cartões existentes
     if not df_cartoes.empty:
         for _, r in df_cartoes.iterrows():
             fatura_mes = 0.0
             if not df_compras.empty:
                 comp_cartao = df_compras[df_compras['cartao'] == r['nome']]
                 for _, c in comp_cartao.iterrows():
-                    # Proteção contra divisão por zero ou nulo
                     total_p = int(c['parcelas_total']) if c['parcelas_total'] else 1
                     fatura_mes += (float(c['valor_total']) / total_p)
 
@@ -90,7 +91,24 @@ with st.sidebar:
                 supabase.table("cartoes").delete().eq("id", r['id']).execute()
                 st.rerun()
 
-# --- ABAS ---
+    # FORMULÁRIO PARA ACRESCENTAR MAIS CARTÕES
+    with st.expander("➕ Adicionar Novo Cartão"):
+        with st.form("form_cartao", clear_on_submit=True):
+            n_nome = st.text_input("Nome do Banco (Ex: Inter)")
+            n_cor = st.color_picker("Cor do Cartão", "#8A05BE")
+            n_final = st.text_input("4 últimos dígitos", max_chars=4)
+            if st.form_submit_button("Salvar Cartão"):
+                if n_nome and n_final:
+                    supabase.table("cartoes").insert({
+                        "nome": n_nome, 
+                        "cor": n_cor, 
+                        "final": n_final, 
+                        "venc": "28"
+                    }).execute()
+                    st.success(f"Cartão {n_nome} adicionado!")
+                    st.rerun()
+
+# --- ABAS PRINCIPAIS ---
 tabs = st.tabs(["🛒 Lançar Compras", "🏠 Contas Fixas", "📊 Resumo Mensal"])
 
 with tabs[0]: 
@@ -104,11 +122,12 @@ with tabs[0]:
             with v_col2: tipo_in = st.selectbox("Lançar por:", ["Parcela Mensal", "Valor Total"])
             
             p_col1, p_col2 = st.columns(2)
-            # CAMPOS EM BRANCO (value=None)
             with p_col1: p_at = st.number_input("Parcela Atual", min_value=1, value=None)
             with p_col2: p_to = st.number_input("Total Parcelas", min_value=1, value=None)
             
-            cartao_sel = st.selectbox("Selecione o Cartão", df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum"])
+            # Dinamicamente carrega todos os cartões cadastrados
+            cartoes_opcoes = df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum"]
+            cartao_sel = st.selectbox("Selecione o Cartão", cartoes_opcoes)
             quem = st.multiselect("Quem vai pagar?", LISTA_NOMES)
             
             if st.form_submit_button("🚀 Salvar Gasto"):
@@ -121,8 +140,6 @@ with tabs[0]:
                         "participes": ",".join(quem), "data": data_s
                     }).execute()
                     st.rerun()
-                else:
-                    st.warning("Por favor, preencha todos os campos (incluindo as parcelas).")
 
     with c2:
         st.subheader(f"📋 Histórico ({mes_selecionado})")
@@ -146,7 +163,7 @@ with tabs[0]:
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-                if st.button("🗑️ Apagar", key=f"del_h_{r['id']}"):
+                if st.button("🗑️", key=f"del_h_{r['id']}"):
                     supabase.table("compras").delete().eq("id", r['id']).execute()
                     st.rerun()
 

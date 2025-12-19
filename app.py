@@ -11,15 +11,14 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# Lista de nomes fixa para evitar erros de digitação
 LISTA_NOMES = ["Vitor", "Edvirge", "Adriana", "Duda"]
 
-# --- FUNÇÕES DE APOIO ---
+# --- FUNÇÕES ---
 def get_data(tabela):
     try:
         res = supabase.table(tabela).select("*").execute()
         return pd.DataFrame(res.data)
-    except Exception:
+    except:
         return pd.DataFrame()
 
 def format_real(v):
@@ -41,12 +40,11 @@ df_cartoes = get_data("cartoes")
 df_compras = get_data("compras")
 df_fixos = get_data("fixos")
 
-# --- SIDEBAR (GESTÃO DE CARTÕES) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown("<h2 style='color:#8A05BE;'>💳 Meus Cartões</h2>", unsafe_allow_html=True)
     if not df_cartoes.empty:
         for _, r in df_cartoes.iterrows():
-            # Soma total gasta no cartão no histórico
             total_card = df_compras[df_compras['cartao'] == r['nome']]['valor_total'].sum() if not df_compras.empty else 0.0
             st.markdown(f"""
             <div style="background:{r['cor']}; padding:15px; border-radius:10px; margin-bottom:10px; color:white;">
@@ -63,60 +61,61 @@ with st.sidebar:
         with st.form("f_cartao", clear_on_submit=True):
             n_nome = st.text_input("Banco")
             n_cor = st.color_picker("Cor", "#8A05BE")
-            n_final = st.text_input("4 dígitos finais", max_chars=4)
-            if st.form_submit_button("Salvar Cartão"):
-                if n_nome and n_final:
-                    supabase.table("cartoes").insert({"nome": n_nome, "cor": n_cor, "final": n_final, "venc": "28"}).execute()
-                    st.rerun()
+            n_final = st.text_input("4 dígitos", max_chars=4)
+            if st.form_submit_button("Salvar"):
+                supabase.table("cartoes").insert({"nome": n_nome, "cor": n_cor, "final": n_final, "venc": "28"}).execute()
+                st.rerun()
 
 # --- CONTEÚDO PRINCIPAL ---
 tabs = st.tabs(["🛒 Compras", "🏠 Contas Fixas", "📊 Resumo Mensal"])
 
-with tabs[0]: # ABA COMPRAS
+with tabs[0]: # COMPRAS
     c1, c2 = st.columns([1, 1.3])
     with c1:
         st.subheader("Registrar Gasto")
         with st.form("f_compra", clear_on_submit=True):
-            item = st.text_input("Descrição da Compra")
-            valor = st.number_input("Valor Total (R$)", min_value=0.0, format="%.2f")
+            item = st.text_input("Descrição")
+            valor = st.number_input("Valor total da compra", min_value=0.0)
             
             col_p1, col_p2 = st.columns(2)
             with col_p1:
-                p_total = st.number_input("Total de Parcelas", min_value=1, value=1)
+                p_total_input = st.number_input("Total de Parcelas", min_value=1, value=1)
             with col_p2:
-                p_atual = st.number_input("Parcela Atual", min_value=1, value=1)
+                p_atual_input = st.number_input("Parcela Atual", min_value=1, value=1)
             
             cartoes_lista = df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum"]
             cartao_sel = st.selectbox("Cartão", cartoes_lista)
-            quem_participa = st.multiselect("Dividir com:", LISTA_NOMES)
+            quem = st.multiselect("Dividir com:", LISTA_NOMES)
             
             if st.form_submit_button("🚀 Salvar Gasto"):
-                if item and valor > 0 and quem_participa:
+                if item and valor > 0 and quem:
                     supabase.table("compras").insert({
                         "nome": item, 
                         "valor_total": valor, 
                         "cartao": cartao_sel,
-                        "parcelas_total": int(p_total),
-                        "parcela_atual": int(p_atual),
-                        "participes": ",".join(quem_participa), 
-                        "valor_por_pessoa": round(valor / len(quem_participa), 2),
+                        "parcelas_total": int(p_total_input),
+                        "parcela_atual": int(p_atual_input),
+                        "participes": ",".join(quem), 
+                        "valor_por_pessoa": round(valor/len(quem), 2),
                         "data": datetime.now().strftime("%d/%m/%Y")
                     }).execute()
                     st.rerun()
-
     with c2:
         st.subheader("📋 Histórico")
         if not df_compras.empty:
-            # Ordenar pelo ID mais recente
+            # Ordenar para ver o mais novo primeiro
             df_hist = df_compras.sort_values(by="id", ascending=False)
             for _, r in df_hist.iterrows():
-                # CORREÇÃO DA ORDEM: Parcela Atual (ex: 6) DE Total (ex: 12)
-                p_texto = f"<span class='parcela-tag'>{int(r['parcela_atual'])} de {int(r['parcelas_total'])}x</span>" if r['parcelas_total'] > 1 else ""
+                # --- AQUI ESTÁ A CORREÇÃO DA ORDEM ---
+                atual = int(r['parcela_atual'])
+                total = int(r['parcelas_total'])
+                
+                info_p = f"<span class='parcela-tag'>{atual} de {total}x</span>" if total > 1 else ""
                 
                 st.markdown(f"""
                 <div class="historico-container">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span><b>{r['nome']}</b> {p_texto}</span> 
+                        <span><b>{r['nome']}</b> {info_p}</span> 
                         <b style="color:#8A05BE;">{format_real(r['valor_total'])}</b>
                     </div>
                     <div style="font-size:0.85em; color:#8b949e; margin-top:5px;">
@@ -128,40 +127,31 @@ with tabs[0]: # ABA COMPRAS
                     supabase.table("compras").delete().eq("id", r['id']).execute()
                     st.rerun()
 
-with tabs[1]: # ABA CONTAS FIXAS
+with tabs[1]: # FIXAS
     f1, f2 = st.columns([1, 1.3])
     with f1:
         st.subheader("Nova Conta Fixa")
         with st.form("f_fixo", clear_on_submit=True):
             servico = st.text_input("Serviço")
-            v_total = st.number_input("Valor Total", min_value=0.0, format="%.2f")
+            v_total = st.number_input("Valor Total", min_value=0.0)
             p1_n = st.selectbox("Quem paga (1)", LISTA_NOMES)
-            p1_v = st.number_input("Valor para P1", min_value=0.0)
+            p1_v = st.number_input("Pessoa 1 paga", min_value=0.0)
             p2_n = st.selectbox("Quem paga (2) - Opcional", [""] + LISTA_NOMES)
-            p2_v = st.number_input("Valor para P2", min_value=0.0)
+            p2_v = st.number_input("Pessoa 2 paga", min_value=0.0)
             if st.form_submit_button("📌 Salvar"):
-                supabase.table("fixos").insert({
-                    "item": servico, "valor": v_total, 
-                    "p1_nome": p1_n, "p1_valor": p1_v, 
-                    "p2_nome": p2_n, "p2_valor": p2_v
-                }).execute()
+                supabase.table("fixos").insert({"item": servico, "valor": v_total, "p1_nome": p1_n, "p1_valor": p1_v, "p2_nome": p2_n, "p2_valor": p2_v}).execute()
                 st.rerun()
     with f2:
-        st.subheader("Lista de Fixas")
+        st.subheader("Lista")
         if not df_fixos.empty:
             for _, r in df_fixos.iterrows():
-                st.markdown(f"""
-                <div class="historico-container">
-                    <b>{r['item']}</b>: {format_real(r['valor'])}
-                    <br><small>{r['p1_nome']} ({format_real(r['p1_valor'])}) {f'| {r["p2_nome"]} ({format_real(r["p2_valor"])})' if r['p2_nome'] else ''}</small>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f'<div class="historico-container"><b>{r["item"]}</b>: {format_real(r["valor"])}</div>', unsafe_allow_html=True)
                 if st.button("🗑️", key=f"del_f_{r['id']}"):
                     supabase.table("fixos").delete().eq("id", r['id']).execute()
                     st.rerun()
 
-with tabs[2]: # ABA RESUMO MENSAL
-    st.subheader("📊 Resumo Mensal (Parcelas do mês)")
+with tabs[2]: # RESUMO MENSAL
+    st.subheader("📊 Resumo Mensal (Apenas parcelas do mês)")
     res_cols = st.columns(len(LISTA_NOMES))
     for i, nome in enumerate(LISTA_NOMES):
         total_c_mes = 0
@@ -169,10 +159,13 @@ with tabs[2]: # ABA RESUMO MENSAL
             for _, r in df_compras.iterrows():
                 participantes = str(r['participes']).split(',')
                 if nome in participantes:
-                    # Lógica: (Valor Total / Número de Parcelas) / Quantidade de participantes
-                    valor_parcela_unitaria = r['valor_total'] / r['parcelas_total']
-                    valor_por_pessoa_no_mes = valor_parcela_unitaria / len(participantes)
-                    total_c_mes += valor_por_pessoa_no_mes
+                    # Calcula o valor da parcela individual deste mês
+                    # Ex: (300 total / 10 parcelas) / 2 pessoas = 15,00 por mês
+                    v_total_compra = float(r['valor_total'])
+                    qtd_parcelas = int(r['parcelas_total'])
+                    v_parcela_mes = v_total_compra / qtd_parcelas
+                    v_por_pessoa_mes = v_parcela_mes / len(participantes)
+                    total_c_mes += v_por_pessoa_mes
         
         total_f = 0
         if not df_fixos.empty:
@@ -183,11 +176,11 @@ with tabs[2]: # ABA RESUMO MENSAL
         with res_cols[i]:
             st.markdown(f"""
             <div class="card-resumo">
-                <small style="text-transform:uppercase; color:#768390; letter-spacing:1px;">{nome}</small><br>
+                <small style="text-transform:uppercase; color:#768390;">{nome}</small><br>
                 <b style="font-size:1.6em; color:#adbac7;">{format_real(total_c_mes + total_f)}</b><br>
                 <div style="font-size:0.75em; color:#8b949e; margin-top:10px;">
-                    Parcelas do Mês: {format_real(total_c_mes)}<br>
-                    Contas Fixas: {format_real(total_f)}
+                    Compras Parc: {format_real(total_c_mes)}<br>
+                    Fixos: {format_real(total_f)}
                 </div>
             </div>
             """, unsafe_allow_html=True)

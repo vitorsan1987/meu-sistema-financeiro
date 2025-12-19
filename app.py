@@ -31,6 +31,7 @@ st.markdown("""
     [data-testid="stSidebar"] { background-color: #161b22; border-right: 1px solid #30363d; }
     .historico-container { background: #161b22; padding: 15px; border-radius: 10px; border: 1px solid #30363d; margin-bottom: 10px; }
     .card-resumo { background: #1c2128; padding: 20px; border-radius: 12px; border: 1px solid #444c56; margin-bottom: 15px; }
+    .parcela-tag { background: #8A05BE; color: white; padding: 2px 8px; border-radius: 5px; font-size: 0.7em; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -74,14 +75,28 @@ with tabs[0]: # COMPRAS
         st.subheader("Registrar Gasto")
         with st.form("f_compra", clear_on_submit=True):
             item = st.text_input("Descrição")
-            valor = st.number_input("Valor total", min_value=0.0)
+            valor = st.number_input("Valor total da compra", min_value=0.0)
+            
+            # --- CAMPOS DE PARCELAMENTO ---
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                p_total = st.number_input("Total de Parcelas", min_value=1, value=1)
+            with col_p2:
+                p_atual = st.number_input("Parcela Atual", min_value=1, value=1)
+            
             cartao = st.selectbox("Cartão", df_cartoes['nome'].tolist() if not df_cartoes.empty else ["Nenhum"])
             quem = st.multiselect("Dividir com:", LISTA_NOMES)
+            
             if st.form_submit_button("🚀 Salvar"):
                 if item and valor > 0 and quem:
                     supabase.table("compras").insert({
-                        "nome": item, "valor_total": valor, "cartao": cartao,
-                        "participes": ",".join(quem), "valor_por_pessoa": round(valor/len(quem), 2),
+                        "nome": item, 
+                        "valor_total": valor, 
+                        "cartao": cartao,
+                        "parcelas_total": p_total,
+                        "parcela_atual": p_atual,
+                        "participes": ",".join(quem), 
+                        "valor_por_pessoa": round(valor/len(quem), 2),
                         "data": datetime.now().strftime("%d/%m/%Y")
                     }).execute()
                     st.rerun()
@@ -89,17 +104,21 @@ with tabs[0]: # COMPRAS
         st.subheader("Histórico")
         if not df_compras.empty:
             for _, r in df_compras.iloc[::-1].iterrows():
+                info_parcela = f"<span class='parcela-tag'>{r['parcela_atual']} de {r['parcelas_total']}x</span>" if r['parcelas_total'] > 1 else ""
                 st.markdown(f"""
                 <div class="historico-container">
-                    <div style="display:flex; justify-content:space-between;"><b>{r['nome']}</b> <b>{format_real(r['valor_total'])}</b></div>
-                    <small>{r['data']} | {r['participes']}</small>
+                    <div style="display:flex; justify-content:space-between;">
+                        <b>{r['nome']} {info_parcela}</b> 
+                        <b>{format_real(r['valor_total'])}</b>
+                    </div>
+                    <small>{r['data']} | {r['cartao']} | {r['participes']}</small>
                 </div>
                 """, unsafe_allow_html=True)
                 if st.button("🗑️ Apagar", key=f"del_h_{r['id']}"):
                     supabase.table("compras").delete().eq("id", r['id']).execute()
                     st.rerun()
 
-with tabs[1]: # FIXAS
+with tabs[1]: # FIXAS (IGUAL AO ANTERIOR)
     f1, f2 = st.columns([1, 1.3])
     with f1:
         st.subheader("Nova Conta Fixa")

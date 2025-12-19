@@ -6,7 +6,7 @@ from datetime import datetime
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Finanças Pro Cloud", page_icon="💰", layout="wide")
 
-# Conexão Supabase
+# Conexão Supabase através das Secrets
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
@@ -31,7 +31,7 @@ st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: #ffffff; }
     [data-testid="stSidebar"] { background-color: #161b22; border-right: 1px solid #30363d; min-width: 300px; }
-    .cartao-container { background: #8A05BE; padding: 20px; border-radius: 15px; margin-bottom: 15px; color: white; min-height: 150px; display: flex; flex-direction: column; justify-content: space-between; }
+    .cartao-container { background: #8A05BE; padding: 20px; border-radius: 15px; margin-bottom: 15px; color: white; min-height: 150px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
     .historico-container { background: #161b22; padding: 15px; border-radius: 10px; border: 1px solid #30363d; margin-bottom: 10px; }
     .card-resumo { background: #1c2128; padding: 20px; border-radius: 12px; border: 1px solid #444c56; margin-bottom: 15px; min-height: 150px; }
     .parcela-tag { background: #8A05BE; color: white; padding: 3px 10px; border-radius: 6px; font-size: 0.75em; font-weight: bold; }
@@ -46,7 +46,6 @@ with col_m1:
 with col_m2:
     ano_selecionado = st.number_input("Ano", min_value=2024, max_value=2030, value=datetime.now().year)
 
-# Converter mês selecionado para número (Ex: Janeiro -> "01")
 mes_idx = str(MESES.index(mes_selecionado) + 1).zfill(2)
 filtro_data = f"/{mes_idx}/{ano_selecionado}"
 
@@ -55,18 +54,26 @@ df_cartoes = get_data("cartoes")
 df_compras_raw = get_data("compras")
 df_fixos = get_data("fixos")
 
-# Filtrar compras pelo mês selecionado (buscando o padrão /MM/AAAA na string de data)
+# Filtrar compras pelo mês selecionado
 if not df_compras_raw.empty:
     df_compras = df_compras_raw[df_compras_raw['data'].str.contains(filtro_data)]
 else:
     df_compras = pd.DataFrame()
 
-# --- BARRA LATERAL (CARTÕES) ---
+# --- BARRA LATERAL (CARTÕES COM SOMA DA FATURA DO MÊS) ---
 with st.sidebar:
     st.markdown("<h2 style='color:#8A05BE;'>💳 Meus Cartões</h2>", unsafe_allow_html=True)
     if not df_cartoes.empty:
         for _, r in df_cartoes.iterrows():
-            total_card = df_compras[df_compras['cartao'] == r['nome']]['valor_total'].sum() if not df_compras.empty else 0.0
+            # NOVA LÓGICA: Soma apenas a parcela correspondente ao mês
+            fatura_mes = 0.0
+            if not df_compras.empty:
+                compras_cartao = df_compras[df_compras['cartao'] == r['nome']]
+                for _, compra in compras_cartao.iterrows():
+                    valor_total = float(compra['valor_total'])
+                    parcelas = int(compra['parcelas_total'])
+                    fatura_mes += (valor_total / parcelas)
+
             st.markdown(f"""
             <div class="cartao-container" style="background:{r['cor']};">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -75,14 +82,24 @@ with st.sidebar:
                 </div>
                 <div style="font-family:monospace; font-size:1.1em; margin: 15px 0;">**** **** **** {r['final']}</div>
                 <div>
-                    <small style="opacity:0.8; font-size:0.7em;">TOTAL NO MÊS</small><br>
-                    <b style="font-size:1.2em;">{format_real(total_card)}</b>
+                    <small style="opacity:0.8; font-size:0.7em;">FATURA DE {mes_selecionado.upper()}</small><br>
+                    <b style="font-size:1.2em;">{format_real(fatura_mes)}</b>
                 </div>
             </div>
             """, unsafe_allow_html=True)
             if st.button(f"🗑️ Remover {r['nome']}", key=f"del_c_{r['id']}"):
                 supabase.table("cartoes").delete().eq("id", r['id']).execute()
                 st.rerun()
+    
+    with st.expander("➕ Novo Cartão"):
+        with st.form("form_cartao", clear_on_submit=True):
+            n_nome = st.text_input("Nome do Banco")
+            n_cor = st.color_picker("Cor do Cartão", "#8A05BE")
+            n_final = st.text_input("4 últimos dígitos", max_chars=4)
+            if st.form_submit_button("Salvar"):
+                if n_nome and n_final:
+                    supabase.table("cartoes").insert({"nome": n_nome, "cor": n_cor, "final": n_final, "venc": "28"}).execute()
+                    st.rerun()
 
 # --- TABS ---
 tabs = st.tabs(["🛒 Compras", "🏠 Contas Fixas", "📊 Resumo Mensal"])
@@ -104,7 +121,6 @@ with tabs[0]: # COMPRAS
             if st.form_submit_button("🚀 Salvar"):
                 if item and valor_digitado > 0 and quem:
                     v_total_calc = valor_digitado * p_total_in if tipo_valor == "Parcela Mensal" else valor_digitado
-                    # Salva com a data do mês selecionado no filtro para facilitar testes, ou use datetime.now()
                     data_salvar = datetime.now().strftime(f"%d/{mes_idx}/{ano_selecionado}")
                     supabase.table("compras").insert({
                         "nome": item, "valor_total": v_total_calc, "cartao": cartao_sel,
@@ -143,8 +159,11 @@ with tabs[2]: # RESUMO
                 if nome in parts:
                     total_c_mes += (float(r['valor_total']) / int(r['parcelas_total'])) / len(parts)
         
-        total_f = df_fixos[df_fixos['p1_nome'] == nome]['p1_valor'].sum() + \
-                  df_fixos[df_fixos['p2_nome'] == nome]['p2_valor'].sum() if not df_fixos.empty else 0.0
+        total_f = 0.0
+        if not df_fixos.empty:
+            v1 = df_fixos[df_fixos['p1_nome'] == nome]['p1_valor'].sum()
+            v2 = df_fixos[df_fixos['p2_nome'] == nome]['p2_valor'].sum()
+            total_f = float(v1 + v2)
         
         with res_cols[i]:
             st.markdown(f"""
